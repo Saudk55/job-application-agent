@@ -1,0 +1,5 @@
+.env
+google_credentials.json
+jobs_seen.json
+jobs_results.xlsx
+__pycache__/

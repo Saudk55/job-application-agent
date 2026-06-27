@@ -1,0 +1,11 @@
+anthropic
+python-dotenv
+requests
+feedparser
+gspread
+google-auth
+google-api-python-client
+openpyxl
+reportlab
+pypdf
+apify-client==2.5.0

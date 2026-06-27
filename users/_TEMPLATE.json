@@ -1,0 +1,60 @@
+{
+  "_comment": "Template for a new (multi-user) profile. Copy to users/<name>.json (NO leading underscore) to activate. Files starting with _ are ignored by the loader. Each user gets their own sheet tab and their own email. Cost is reported per user.",
+
+  "name": "Friend Name",
+  "sheet_tab": "Friend Name",
+  "email": "friend@example.com",
+
+  "active": false,
+  "_active_note": "Keep false until the friend has paid. false = profile exists but the agent does not run it.",
+
+  "limits": {"max_scored": 30, "max_results": 4},
+  "_limits_note": "Optional. max_scored caps how many jobs get Claude-scored (cost control); max_results caps matches saved/emailed. Use small values (e.g. max_results 3-4) for a cheap demo run. Omit 'limits' entirely for an uncapped run.",
+
+  "use_paid_sources": false,
+  "_use_paid_sources_note": "false = skip the paid LinkedIn (Apify) source, run on free sources only (~free demo). Set true for full Gulf/EU coverage once the friend is paying.",
+
+  "search_keywords": ["Product Manager"],
+  "target_roles": ["Product Manager", "Senior Product Manager", "Product Owner"],
+  "freelance_ok": "no",
+  "target_industries": ["SaaS", "Fintech", "E-commerce"],
+  "core_skills": ["Roadmapping", "Agile", "SQL", "Analytics"],
+  "domain_expertise": ["B2B SaaS"],
+  "notable_achievements": ["Example: grew activation 25%"],
+  "education": "BS Computer Science, Example University",
+  "years_experience": 4,
+  "current_title": "Product Manager",
+  "preferred_work_type": ["Remote", "Hybrid", "On-site"],
+  "relocation": "Open to relocation with visa sponsorship to Europe and the Gulf",
+  "languages": ["English"],
+
+  "_cv_note": "REQUIRED for multi-user CV tailoring. Same shape as cv_tailor.BASE_CV. If omitted, the agent falls back to the user's CV (wrong for a friend) — always provide this.",
+  "cv": {
+    "name": "Friend Name",
+    "contact": "Phone: +.. | Email: friend@example.com | LinkedIn: linkedin.com/in/friend | City: City",
+    "summary": "One-paragraph professional summary.",
+    "experience": [
+      {
+        "company": "COMPANY",
+        "title": "Job Title",
+        "dates": "Jan 2022 - Present",
+        "bullets": [
+          "Achievement bullet with a metric.",
+          "Another achievement bullet."
+        ]
+      }
+    ],
+    "education": {
+      "school": "Example University",
+      "dates": "2016-2020",
+      "degree": "Bachelor of Science | Computer Science | CGPA: 3.6/4.00"
+    },
+    "skills": [
+      "Product: Roadmapping, Agile, OKRs, PRD Writing",
+      "Technical: SQL, Python, Analytics, Figma"
+    ]
+  },
+
+  "_cv_variants_note": "Optional. Per-track summary/skills overrides for strategy/consulting roles (same shape as cv_tailor.CV_VARIANTS). If omitted, those roles fall back to the master CV under the normal scoring gate.",
+  "cv_variants": {}
+}
