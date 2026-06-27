@@ -50,11 +50,17 @@ All credentials are supplied via environment variables / GitHub Actions secrets 
 
 ## Screenshots
 
-> _Add your own below._
+**Email digest — scored matches with apply links**
 
-| Email digest | Google Sheet tracker | Tailored CV |
-|---|---|---|
-| _(screenshot placeholder)_ | _(screenshot placeholder)_ | _(screenshot placeholder)_ |
+![Email digest of scored job matches](assets/screenshots/email-digest.png)
+
+**Google Sheet tracker — one row per job (score, verdict, apply + CV links, status)**
+
+![Google Sheet job tracker](assets/screenshots/tracker.png)
+
+**Tailored CVs — a role-specific CV generated and attached per job**
+
+![Tailored CV attachments](assets/screenshots/cv-attachments.png)
 
 ## Configuration
 
