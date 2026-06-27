@@ -2,6 +2,8 @@
 
 **An autonomous agent that finds relevant jobs, scores them with AI, writes a tailored CV for each one, and emails you a ready-to-apply shortlist — on a schedule, hands-free.**
 
+![Job Application Agent architecture](assets/architecture.png)
+
 ## What it does
 
 Job hunting at scale is repetitive: search several boards, read each posting, judge fit, and rewrite your CV for every role. This agent does all of that automatically. A few times a week it pulls fresh postings from multiple sources, uses Claude to score each one against your profile, generates a CV tailored to the jobs worth applying to, and sends you a single digest with apply links and the matching CV attached. You just review and click apply.
