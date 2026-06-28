@@ -15,6 +15,7 @@ from job_searcher import search_all
 from job_searcher_themuse import search_all_themuse
 from job_searcher_linkedin import search_all_linkedin
 from matcher import filter_jobs
+from recency import filter_recent
 from tracker import filter_new_jobs, mark_jobs_seen
 from notifier import save_to_sheet, send_email
 from cv_tailor import tailor_and_generate
@@ -23,9 +24,16 @@ import cost_tracker
 
 MAX_PER_SOURCE = 20
 MAX_PER_LOCATION = 10
-MIN_SCORE = 6
-# Hard ceiling on LLM-tailored CVs per run (cost control). Only score-7 product
-# roles are tailored; this caps a high-volume day. Highest scores tailored first.
+# Drop "weak fit" jobs (score 6 and below). Only 7+ ("almost-strong" through
+# "strong fit") are listed — we don't surface roles where the candidate is a poor match.
+MIN_SCORE = 7
+# Freshness: only list jobs posted within this many days. Goal is to be among the
+# first to apply. 2 days suits a DAILY cron (covers a single missed/failed run
+# without re-listing, since the tracker dedups). Sources that already filter by
+# date server-side (LinkedIn) and undated jobs are kept — see recency.py.
+MAX_AGE_DAYS = 2
+# Hard ceiling on LLM-tailored CVs per run (cost control). Every matched job is
+# ATS-tailored; this caps a high-volume day. Highest scores tailored first.
 # Steady-state runs score few new jobs (tracker dedups), so this rarely binds.
 MAX_LLM_TAILORS = 8
 
@@ -182,6 +190,9 @@ def process_user(user: dict):
         print("   💸 Paid LinkedIn source disabled for this user (free sources only).")
     all_jobs = scrape_jobs(keywords, use_paid=use_paid)
     print(f"\n📦 Total collected for {name}: {len(all_jobs)} jobs")
+
+    # Freshness gate: drop listings older than MAX_AGE_DAYS so we apply early.
+    all_jobs = filter_recent(all_jobs, MAX_AGE_DAYS)
 
     # Filter seen
     new_jobs = filter_new_jobs(all_jobs, name)

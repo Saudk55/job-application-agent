@@ -143,28 +143,20 @@ def build_variant_cv(track: str, base_cv: dict = None, variants: dict = None) ->
 
 
 def tailor_cv(job: dict, base_cv: dict = None) -> dict:
-    """Use Claude to decide which bullets/skills to adjust for a specific job."""
+    """ATS-optimize the CV for a specific job using Claude.
+
+    Implements the Scanner -> Surgeon -> Stress-Test method in a single pass:
+    diagnose the JD's keywords, rewrite to include them naturally, reframe every
+    bullet with the Google XYZ formula, and front-load each bullet so a 7-second
+    skim catches the result. Hard rule: NEVER invent metrics or experience — only
+    real numbers already in the base CV may be used, so the candidate can defend
+    every line in an interview.
+    """
 
     base_cv = base_cv or BASE_CV
     cv_json = json.dumps(base_cv, indent=2)
 
-    prompt = f"""You are a CV tailoring assistant. You will receive a base CV and a job description.
-
-Your job is to make MINIMAL, TARGETED changes to the CV to better align with the job. Follow these strict rules:
-
-1. KEEP the exact same structure, sections, and formatting
-2. KEEP all company names, titles, and dates UNCHANGED
-3. DO NOT invent new experience or achievements — only rephrase existing ones
-4. You may:
-   - Rephrase 2-4 bullet points to emphasize skills mentioned in the job description
-   - Swap 2-3 skills in the skills section to match the job requirements
-   - Slightly adjust the professional summary (1-2 phrases max) to align with the role
-5. REMOVE bullets that are clearly irrelevant to this specific role (e.g. if applying for a fintech role, the school dismissal app bullet can be removed)
-6. The CV MUST stay on one page — if you add anything, remove something of equal length
-7. DO NOT add a cover letter unless I explicitly ask
-
-BASE CV:
-{cv_json}
+    prompt = f"""You are a senior recruiter AND the ATS (applicant tracking system) for this exact role. You know precisely which keywords this job scans for and what makes a resume pass vs get auto-rejected. Rewrite the candidate's CV so it scores as high as possible against THIS job description while staying 100% truthful.
 
 JOB:
 Title: {job.get('title', 'N/A')}
@@ -172,7 +164,28 @@ Company: {job.get('company', 'N/A')}
 Location: {job.get('location', 'N/A')}
 Description: {job.get('description', 'N/A')}
 
-Return the modified CV as a JSON object with the EXACT same structure as the input. Only change the values that need adjusting. Return ONLY valid JSON, no explanation."""
+BASE CV (JSON):
+{cv_json}
+
+Do the following, in order, internally, then output only the rewritten CV:
+
+1. KEYWORDS — Identify the most important hard skills, tools, methods and role-specific terms in the job description. Weave the ones the candidate genuinely has into the summary, bullets, and skills so they read naturally (never keyword-stuff).
+
+2. SUMMARY — Rewrite as a 3-sentence pitch: who they are, what they do best, why they fit THIS role. Include the top 3 job-description keywords naturally.
+
+3. EXPERIENCE BULLETS — Rewrite each bullet with the Google XYZ formula: "Accomplished [X] as measured by [Y] by doing [Z]." Front-load the most compelling words so a 7-second skim catches the result. Weave in relevant keywords.
+   - CRITICAL ANTI-FABRICATION RULE: Use ONLY metrics, numbers, and facts already present in the base CV. Do NOT invent or inflate any number, percentage, dollar amount, or achievement. If a bullet has no metric in the base CV, keep it qualitative — do NOT manufacture one. Every number in your output must trace back to the base CV verbatim.
+   - REMOVE bullets clearly irrelevant to this role (e.g. a school-dismissal app for a fintech role).
+
+4. SKILLS — Keep the same category structure. Reorder/swap so skills the job emphasizes (and the candidate truly has) appear first; drop skills irrelevant to this role. Do not add a skill the candidate has no evidence for.
+
+HARD CONSTRAINTS:
+- KEEP name, contact, education, and all company names, job titles, and dates EXACTLY as in the base CV.
+- Single-column, ATS-safe content only (the renderer handles formatting — just return clean text, no tables/columns/special characters).
+- Must fit ONE page: be concise; if you add length somewhere, trim elsewhere.
+- Do NOT write a cover letter here.
+
+Return ONLY a valid JSON object with the EXACT same structure and keys as the base CV. No explanation, no markdown fences."""
 
     message = client.messages.create(
         model="claude-sonnet-4-5",
@@ -484,16 +497,20 @@ def tailor_and_generate(job: dict, score: int = 10,
                         output_dir: str = "tailored_cvs",
                         allow_llm_tailor: bool = True,
                         user: dict = None) -> dict:
-    """Generate the right CV for a job and guarantee it fits one page.
+    """Generate an ATS-optimized CV for a job and guarantee it fits one page.
 
-    Tailoring gate (cost-tuned 2026-06-04):
-      - Strategy/consulting role WITH a CV variant -> that variant (no LLM).
-      - Product role, strong fit (score >= 8)       -> master CV, no file.
-      - Product role, score == 7 (almost-strong)    -> LLM-tailored CV.
-      - Product role, score <= 6 (weak match)       -> master CV, no file.
-    Only the score-7 band spends Claude tokens. `allow_llm_tailor` lets the
-    orchestrator enforce a per-run cap. `user` selects whose CV to use (multi-
-    user): falls back to the user's BASE_CV when None.
+    Tailoring gate (updated 2026-06-28 — ATS-tailor every matched job):
+      - Every matched job (all scores reach here >= MIN_SCORE) gets an ATS-
+        optimized, JD-keyword-tailored CV via `tailor_cv` (the Scanner/Surgeon/
+        Stress-Test rewrite). Strategy/consulting roles are tailored on TOP of
+        their reframed variant (right framing + JD keywords); other roles tailor
+        from the master CV.
+      - `allow_llm_tailor` enforces the orchestrator's per-run LLM cap
+        (MAX_LLM_TAILORS). When the budget is spent: strategy/consulting still
+        get their free variant CV (a file, no LLM); product roles fall back to
+        the master CV (no file — the user uses their own standard CV).
+    `user` selects whose CV to use (multi-user); falls back to the user's BASE_CV.
+    `score` is informational (used only in logs now).
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -507,25 +524,25 @@ def tailor_and_generate(job: dict, score: int = 10,
     role = classify_role(job)
     has_variant = role in ("strategy", "consulting") and role in variants
 
-    # Without a matching variant, treat the role under the product gate: only the
-    # score-7 band is worth an LLM-tailored CV; 8+/<=6 use the master CV.
-    if not has_variant:
-        if not (score == 7 and allow_llm_tailor):
-            reason = (
-                "strong fit" if score >= 8
-                else ("cap reached" if score == 7 else "weak match")
-            )
-            print(f"✅ {role.capitalize()} role ({score}/10, {reason}) — use Master CV (no file)")
-            return _master_cv_result(role)
-        print(f"✏️ Borderline fit ({score}/10) — tailoring CV for {job.get('title')}...")
-        cv_data = tailor_cv(job, base_cv)
-        label = "Tailored CV"
+    # Base content the ATS tailor rewrites: strategy/consulting roles start from
+    # their reframed variant; everything else from the master CV.
+    source_cv = build_variant_cv(role, base_cv, variants) if has_variant else base_cv
+
+    if allow_llm_tailor:
+        print(f"✏️ ATS-tailoring CV ({score}/10) for {job.get('title')}...")
+        cv_data = tailor_cv(job, source_cv)
+        label = f"{role.capitalize()} CV (ATS)" if has_variant else "Tailored CV (ATS)"
         llm_used = True
-    else:
-        cv_data = build_variant_cv(role, base_cv, variants)
+    elif has_variant:
+        # LLM budget spent — still hand over the free reframed variant.
+        cv_data = source_cv
         label = f"{role.capitalize()} CV"
         llm_used = False
-        print(f"🧭 {role.capitalize()} role — generating {label} variant (no LLM)")
+        print(f"🧭 LLM cap reached — using free {label} variant for {job.get('title')}")
+    else:
+        # LLM budget spent, plain product role — fall back to the master CV.
+        print(f"✅ {role.capitalize()} role ({score}/10) — LLM cap reached, use Master CV (no file)")
+        return _master_cv_result(role)
 
     pdf_path = os.path.join(output_dir, f"{filename}.pdf")
     pages = build_pdf_one_page(cv_data, pdf_path)

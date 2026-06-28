@@ -13,8 +13,11 @@ load_dotenv()
 APIFY_API_KEY = os.getenv("APIFY_API_KEY")
 LINKEDIN_ACTOR_ID = "curious_coder/linkedin-jobs-scraper"
 
-# LinkedIn time filter: jobs posted in last 7 days
-TIME_FILTER = "&f_TPR=r604800"
+# LinkedIn time filter: jobs posted in the last 48 hours (r172800 secs). Tight on
+# purpose — we want to be among the first to apply, and a daily cron keeps the
+# pipeline fed. Bonus: a 48h window returns far fewer rows per run than the old
+# 7-day one, which cuts Apify scrape cost. (24h = r86400, 7 days = r604800.)
+TIME_FILTER = "&f_TPR=r172800"
 
 # LinkedIn workplace type filter: 2 = Remote
 REMOTE_FILTER = "&f_WT=2"

@@ -133,7 +133,7 @@ VERDICT: [STRONG FIT / GOOD FIT / WEAK FIT / NOT A FIT]
     }
 
 
-def filter_jobs(jobs: list, user: dict, min_score: int = 6) -> list:
+def filter_jobs(jobs: list, user: dict, min_score: int = 7) -> list:
     relevant = batch_prefilter(jobs, user)
 
     if not relevant:

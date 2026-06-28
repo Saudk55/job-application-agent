@@ -1,9 +1,10 @@
 name: Job Agent Daily Run
 
 on:
-  # Runs at 8:00 AM PKT (3:00 AM UTC) every day
+  # Runs at 8:00 AM PKT (3:00 AM UTC) every day. Daily cadence + a 48h freshness
+  # filter keeps us applying to listings while they're new (first-mover edge).
   schedule:
-  - cron: '0 3 * * 1,3,5'
+  - cron: '0 3 * * *'
   
   # Manual trigger for testing
   workflow_dispatch:

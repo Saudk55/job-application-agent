@@ -31,7 +31,8 @@ def get_remoteok_jobs(keywords: str, max_jobs: int = 20) -> list:
                     "location": "Remote",
                     "description": description[:2000],
                     "url": item.get("url", "N/A"),
-                    "source": "RemoteOK"
+                    "source": "RemoteOK",
+                    "date_posted": item.get("date") or item.get("epoch", ""),
                 })
 
             if len(jobs) >= max_jobs:
@@ -75,6 +76,7 @@ def get_remotive_jobs(keywords: str, max_jobs: int = 20) -> list:
                 "url": item.get("url", "N/A"),
                 "source": "Remotive",
                 "job_type": job_type,
+                "date_posted": item.get("publication_date", ""),
             })
 
         print(f"  ✓ Remotive: {len(jobs)} jobs found")
@@ -112,7 +114,8 @@ def get_weworkremotely_jobs(keywords: str, max_jobs: int = 20) -> list:
                     "location": "Remote",
                     "description": summary[:2000],
                     "url": entry.get("link", "N/A"),
-                    "source": "WeWorkRemotely"
+                    "source": "WeWorkRemotely",
+                    "date_posted": entry.get("published", ""),
                 })
 
             if len(jobs) >= max_jobs:
