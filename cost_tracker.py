@@ -10,7 +10,7 @@
 UNIT_COST = {
     "prefilter": 0.005,   # batch title pre-filter (matcher)
     "score": 0.007,       # per-job relevance scoring (matcher)
-    "tailor": 0.035,      # ATS CV tailoring (cv_tailor, every matched job, capped)
+    "tailor": 0.055,      # ATS CV tailoring on Opus 4.8 ($5/$25 per M) — every matched job, capped
     "cover": 0.008,       # cover letter generation (cv_tailor, rare)
 }
 

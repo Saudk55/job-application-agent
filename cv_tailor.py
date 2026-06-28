@@ -16,6 +16,11 @@ from reportlab.lib.colors import black, HexColor
 load_dotenv()
 client = Anthropic()
 
+# CV tailoring uses Opus 4.8 — the bullet writing is markedly better than Sonnet's
+# (metric-first phrasing, tighter language), and at ~$0.05-0.09/CV the quality is
+# worth it since the CV is the conversion lever. Scoring stays on Sonnet (matcher.py).
+TAILOR_MODEL = "claude-opus-4-8"
+
 # --- Base CV Content ---
 # SAMPLE base CV — replace every value with your own. No real personal data is
 # committed to this repo; the agent tailors role-specific CVs from this template.
@@ -142,69 +147,105 @@ def build_variant_cv(track: str, base_cv: dict = None, variants: dict = None) ->
     return variant
 
 
-def tailor_cv(job: dict, base_cv: dict = None) -> dict:
-    """ATS-optimize the CV for a specific job using Claude.
+def _extract_json_object(text: str) -> str:
+    """Pull the outermost {...} JSON object out of model output, tolerating stray
+    prose or markdown fences around it."""
+    text = (text or "").strip()
+    text = re.sub(r'^```(?:json)?\s*', '', text)
+    text = re.sub(r'\s*```$', '', text)
+    start, end = text.find('{'), text.rfind('}')
+    return text[start:end + 1] if (start != -1 and end > start) else text
 
-    Implements the Scanner -> Surgeon -> Stress-Test method in a single pass:
-    diagnose the JD's keywords, rewrite to include them naturally, reframe every
-    bullet with the Google XYZ formula, and front-load each bullet so a 7-second
-    skim catches the result. Hard rule: NEVER invent metrics or experience — only
-    real numbers already in the base CV may be used, so the candidate can defend
-    every line in an interview.
+
+def tailor_cv(job: dict, base_cv: dict = None) -> dict:
+    """ATS-optimize a CV for a specific job, preserving structure deterministically.
+
+    The LLM NEVER emits the experience structure. Companies, titles, dates and
+    their reverse-chronological ORDER are kept fixed in code; the model only returns
+    rewritten bullets (position-aligned), the summary, and skills. This makes the
+    role-reordering bug (a recent role sinking to the bottom and looking like an
+    employment gap) impossible.
+
+    Bullets are rewritten METRIC-FIRST (lead with the number/result, then how) using
+    the Google XYZ formula, so a 7-second skim catches the impact. Anti-fabrication:
+    only numbers already present in a role's source bullets may be used. Runs on
+    Opus 4.8 for higher-quality writing. Falls back to the unchanged base CV on error.
     """
+    import copy
 
     base_cv = base_cv or BASE_CV
-    cv_json = json.dumps(base_cv, indent=2)
+    experiences = base_cv.get("experience", [])
 
-    prompt = f"""You are a senior recruiter AND the ATS (applicant tracking system) for this exact role. You know precisely which keywords this job scans for and what makes a resume pass vs get auto-rejected. Rewrite the candidate's CV so it scores as high as possible against THIS job description while staying 100% truthful.
-
-JOB:
-Title: {job.get('title', 'N/A')}
-Company: {job.get('company', 'N/A')}
-Location: {job.get('location', 'N/A')}
-Description: {job.get('description', 'N/A')}
-
-BASE CV (JSON):
-{cv_json}
-
-Do the following, in order, internally, then output only the rewritten CV:
-
-1. KEYWORDS — Identify the most important hard skills, tools, methods and role-specific terms in the job description. Weave the ones the candidate genuinely has into the summary, bullets, and skills so they read naturally (never keyword-stuff).
-
-2. SUMMARY — Rewrite as a 3-sentence pitch: who they are, what they do best, why they fit THIS role. Include the top 3 job-description keywords naturally.
-
-3. EXPERIENCE BULLETS — Rewrite each bullet with the Google XYZ formula: "Accomplished [X] as measured by [Y] by doing [Z]." Front-load the most compelling words so a 7-second skim catches the result. Weave in relevant keywords.
-   - CRITICAL ANTI-FABRICATION RULE: Use ONLY metrics, numbers, and facts already present in the base CV. Do NOT invent or inflate any number, percentage, dollar amount, or achievement. If a bullet has no metric in the base CV, keep it qualitative — do NOT manufacture one. Every number in your output must trace back to the base CV verbatim.
-   - REMOVE bullets clearly irrelevant to this role (e.g. a school-dismissal app for a fintech role).
-
-4. SKILLS — Keep the same category structure. Reorder/swap so skills the job emphasizes (and the candidate truly has) appear first; drop skills irrelevant to this role. Do not add a skill the candidate has no evidence for.
-
-HARD CONSTRAINTS:
-- KEEP name, contact, education, and all company names, job titles, and dates EXACTLY as in the base CV.
-- Single-column, ATS-safe content only (the renderer handles formatting — just return clean text, no tables/columns/special characters).
-- Must fit ONE page: be concise; if you add length somewhere, trim elsewhere.
-- Do NOT write a cover letter here.
-
-Return ONLY a valid JSON object with the EXACT same structure and keys as the base CV. No explanation, no markdown fences."""
-
-    message = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=4000,
-        messages=[{"role": "user", "content": prompt}]
+    # Show the model the roles for context, but it must not touch company/title/date
+    # or the ordering — it only rewrites bullet text, returned position-aligned.
+    roles_block = "\n\n".join(
+        f"ROLE {i} — {exp.get('company','')} | {exp.get('title','')} | {exp.get('dates','')}\n"
+        + "\n".join(f"  - {b}" for b in exp.get("bullets", []))
+        for i, exp in enumerate(experiences)
     )
-    cost_tracker.record("tailor")
 
-    response = message.content[0].text.strip()
+    prompt = f"""You are a senior recruiter and the ATS for this exact role. Rewrite this candidate's CV bullets, summary, and skills to score as high as possible against THIS job while staying 100% truthful.
 
-    # Clean up markdown fences if present
-    response = re.sub(r'^```json\s*', '', response)
-    response = re.sub(r'\s*```$', '', response)
+JOB
+Title: {job.get('title','N/A')}
+Company: {job.get('company','N/A')}
+Location: {job.get('location','N/A')}
+Description: {job.get('description','N/A')}
+
+CANDIDATE SUMMARY (current): {base_cv.get('summary','')}
+CANDIDATE SKILLS (current): {json.dumps(base_cv.get('skills', []))}
+
+CANDIDATE EXPERIENCE — roles are already in correct reverse-chronological order. DO NOT reorder, merge, drop, or relabel roles; rewrite only the bullet TEXT for each:
+{roles_block}
+
+Produce three things:
+1) summary — a 3-sentence pitch: who they are, what they do best, why they fit THIS role at {job.get('company','this company')}. Weave in the top 2-3 job-description keywords naturally.
+2) skills — keep ~5 labeled categories formatted "Category: a, b, c". Reorder/swap so the skills this job emphasizes come first; drop irrelevant ones. Never add a skill with no evidence in the experience.
+3) experience_bullets — an array with EXACTLY one entry per ROLE above, IN THE SAME ORDER (entry 0 = ROLE 0, entry 1 = ROLE 1, ...). Each entry is an array of rewritten bullet strings for that role.
+
+BULLET RULES (most important part):
+- METRIC-FIRST: start each bullet with the concrete result/number, then how. GOOD: "60% faster seller payouts delivered by redesigning the disbursement flow for SMB sellers." BAD: "Redesigned the disbursement flow, improving payouts by 60%."
+- Lead with the strongest real number; if a source bullet has no number, lead with the strongest concrete outcome instead.
+- ANTI-FABRICATION: use ONLY numbers/metrics that already appear in that same role's source bullets. Never invent, inflate, or move a metric between roles. A bullet with no source metric stays qualitative — do not manufacture one.
+- Weave in relevant job-description keywords where truthful.
+- Drop bullets clearly irrelevant to this role/job, but keep at least one bullet per role.
+- One line per bullet (~1 sentence). Keep it tight — the CV must fit one page.
+
+Return ONLY a JSON object (no prose, no markdown fences) of exactly this shape:
+{{"summary": "...", "skills": ["Category: ...", "..."], "experience_bullets": [["bullet", "..."], ["bullet", "..."]]}}"""
 
     try:
-        return json.loads(response)
-    except json.JSONDecodeError:
-        print("⚠ Failed to parse tailored CV JSON, using base CV")
+        message = client.messages.create(
+            model=TAILOR_MODEL,
+            max_tokens=4000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        cost_tracker.record("tailor")
+        raw = "".join(
+            b.text for b in message.content if getattr(b, "type", None) == "text"
+        )
+        data = json.loads(_extract_json_object(raw))
+    except Exception as e:
+        print(f"⚠ Tailoring failed ({e}); using base CV")
         return base_cv
+
+    # Merge into a deep copy so structure/order/companies/titles/dates stay fixed.
+    out = copy.deepcopy(base_cv)
+    if isinstance(data.get("summary"), str) and data["summary"].strip():
+        out["summary"] = data["summary"].strip()
+    if isinstance(data.get("skills"), list):
+        skills = [s.strip() for s in data["skills"] if isinstance(s, str) and s.strip()]
+        if skills:
+            out["skills"] = skills
+    bullets = data.get("experience_bullets")
+    if isinstance(bullets, list):
+        for i, role_bullets in enumerate(bullets):
+            if i < len(out["experience"]) and isinstance(role_bullets, list):
+                cleaned = [b.strip() for b in role_bullets
+                           if isinstance(b, str) and b.strip()]
+                if cleaned:
+                    out["experience"][i]["bullets"] = cleaned
+    return out
 
 
 def generate_cover_letter(job: dict, base_cv: dict = None) -> str:
@@ -258,9 +299,16 @@ Rules:
     return message.content[0].text.strip()
 
 
+def _esc_amp(text: str) -> str:
+    """Escape bare ampersands for reportlab's mini-XML parser (so 'Q&A' doesn't
+    render as 'Q&A;'). Leaves existing entities and our own <b> markup intact."""
+    return re.sub(r'&(?!amp;|lt;|gt;|#\d+;|#x[0-9a-fA-F]+;)', '&amp;', text)
+
+
 def _bold_numbers(text: str) -> str:
     """Make numbers, percentages, and dollar amounts bold in text."""
     import re
+    text = _esc_amp(text)
     # Bold patterns: $15K, 1,500+, 70%, 10-minute, FY'23, 3PL
     text = re.sub(
         r'(\$[\d,]+[KMB]?|\d[\d,]*\.?\d*\+?%?(?:-\w+)?)',
@@ -357,7 +405,7 @@ def build_pdf(cv_data: dict, output_path: str):
     # --- Professional Summary ---
     story.append(Paragraph("<b>PROFESSIONAL SUMMARY</b>", section_header_style))
     story.append(HRFlowable(width="100%", thickness=0.75, color=TEAL, spaceAfter=3))
-    story.append(Paragraph(cv_data["summary"], summary_style))
+    story.append(Paragraph(_esc_amp(cv_data["summary"]), summary_style))
 
     # --- Work Experience ---
     story.append(Paragraph("<b>WORK EXPERIENCE</b>", section_header_style))
@@ -423,6 +471,7 @@ def build_pdf(cv_data: dict, output_path: str):
 
     for skill in cv_data["skills"]:
         # Bold the category before the colon
+        skill = _esc_amp(skill)
         if ":" in skill:
             parts = skill.split(":", 1)
             formatted = f"<b>{parts[0]}:</b>{parts[1]}"
