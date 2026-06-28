@@ -35,7 +35,7 @@ MAX_AGE_DAYS = 2
 # Hard ceiling on LLM-tailored CVs per run (cost control). Every matched job is
 # ATS-tailored; this caps a high-volume day. Highest scores tailored first.
 # Steady-state runs score few new jobs (tracker dedups), so this rarely binds.
-MAX_LLM_TAILORS = 8
+MAX_LLM_TAILORS = 20
 
 # Multi-user master switch. The multi-user CODE is fully built, but until friends
 # are paying we only run the primary user (the primary user) on the cron. Flip to True (and
