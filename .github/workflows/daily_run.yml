@@ -1,13 +1,10 @@
 name: Job Agent Daily Run
 
+# NOTE: This is the PUBLIC, code-only mirror. The scheduled cron lives in the
+# private repo (Saudk55/job-agent), which holds the secrets and personal data.
+# Here we expose only manual dispatch so this repo never auto-runs without secrets.
 on:
-  # Runs 8:00 AM PKT (3:00 AM UTC) Mon/Wed/Fri/Sun — 4x/week, evenly spaced so the
-  # longest gap between runs is 48h, matching MAX_AGE_DAYS=2: we stay first-to-apply
-  # and never miss a fresh (incl. weekend) listing, while staying in the Apify free tier.
-  schedule:
-  - cron: '0 3 * * 0,1,3,5'
-  
-  # Manual trigger for testing
+  # Manual trigger only (no schedule in the public mirror)
   workflow_dispatch:
 
 jobs:
@@ -50,7 +47,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f tailored_cvs/*.pdf
+          if ls tailored_cvs/*.pdf 1>/dev/null 2>&1; then
+            git add -f tailored_cvs/*.pdf
+          fi
           if ls jobs_seen_*.json 1>/dev/null 2>&1; then
             git add -f jobs_seen_*.json
           fi
